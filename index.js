@@ -5,7 +5,6 @@ import fs from 'fs';
 import path from 'path';
 import { google } from 'googleapis';
 import { authenticate } from '@google-cloud/local-auth';
-import { PassThrough } from 'stream';
 
 const app = express();
 const port = 3000;
@@ -17,7 +16,7 @@ const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Serve input form
+// Serve the form for user to input magnet URL
 app.get('/', (req, res) => {
   res.send(`
     <html>
@@ -70,33 +69,19 @@ async function authorize() {
   return client;
 }
 
-// Upload stream to Google Drive with percentage progress callback
-async function uploadStreamToDrive(auth, fileName, inputStream, fileSize, onProgress) {
+// Upload stream to Google Drive
+async function uploadStreamToDrive(auth, fileName, stream) {
   const drive = google.drive({ version: 'v3', auth });
-  const passThrough = new PassThrough();
-  let uploadedBytes = 0;
-
-  passThrough.on('data', chunk => {
-    uploadedBytes += chunk.length;
-    if (onProgress) {
-      const percentage = ((uploadedBytes / fileSize) * 100).toFixed(2);
-      onProgress(percentage);
-    }
-  });
-
-  inputStream.pipe(passThrough);
-
   const res = await drive.files.create({
     requestBody: { name: fileName },
-    media: { body: passThrough },
+    media: { body: stream },
     fields: 'id',
   });
-
   return res.data.id;
 }
 
-// Stream torrent video to Google Drive with progress
-async function streamTorrentToDrive(magnetURI, onProgress) {
+// Stream torrent video directly to Google Drive
+async function streamTorrentToDrive(magnetURI) {
   const client = new WebTorrent();
 
   return new Promise((resolve, reject) => {
@@ -121,9 +106,9 @@ async function streamTorrentToDrive(magnetURI, onProgress) {
 
       console.log('Uploading stream of:', file.name);
 
-      const fileStream = file.createReadStream();
+      const stream = file.createReadStream();
       try {
-        const fileId = await uploadStreamToDrive(auth, file.name, fileStream, file.length, onProgress);
+        const fileId = await uploadStreamToDrive(auth, file.name, stream);
         client.destroy();
         resolve(fileId);
       } catch (err) {
@@ -138,42 +123,21 @@ async function streamTorrentToDrive(magnetURI, onProgress) {
   });
 }
 
-// Handle form POST submission and stream percentage updates to UI
+// Handle form POST submission with magnet URI
 app.post('/upload', async (req, res) => {
   const magnetURI = req.body.magnetURI;
   if (!magnetURI) {
     return res.status(400).send('Magnet URL is required');
   }
-
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Transfer-Encoding': 'chunked',
-  });
-
-  res.write(`
-    <html><body>
-    <h2>Uploading to Google Drive...</h2>
-    <div id="progress">Progress: 0%</div>
-    <script>
-      function updateProgress(percentage) {
-        document.getElementById('progress').textContent = "Progress: " + percentage + "%";
-      }
-    </script>
-  `);
-
   try {
-    await streamTorrentToDrive(magnetURI, (percentage) => {
-      res.write(`<script>updateProgress(${percentage});</script>\n`);
-    });
-
-    res.write('<h3>Upload complete!</h3></body></html>');
-    res.end();
+    const fileId = await streamTorrentToDrive(magnetURI);
+    res.send(`Upload complete! Google Drive file ID: <code>${fileId}</code>`);
   } catch (err) {
-    res.write(`<h3 style="color:red;">Error: ${err}</h3></body></html>`);
-    res.end();
+    res.status(500).send('Error: ' + err);
   }
 });
 
+// Start the server
 app.listen(port, () => {
   console.log(`App running at http://localhost:${port}`);
 });
