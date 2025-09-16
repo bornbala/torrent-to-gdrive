@@ -1,0 +1,19 @@
+{
+  "name": "torrent-to-g-drive",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/local-auth": "^3.0.1",
+    "body-parser": "^2.2.0",
+    "express": "^5.1.0",
+    "googleapis": "^159.0.0",
+    "webtorrent": "^2.8.4"
+  }
+}
